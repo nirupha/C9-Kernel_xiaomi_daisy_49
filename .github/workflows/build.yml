@@ -6,19 +6,19 @@ on:
       kernel_repo:
         description: 'Kernel source repo (owner/name)'
         required: true
-        default: 'crdroidandroid/android_kernel_xiaomi_daisy'
+        default: 'TheSanty/kernel_xiaomi_msm8953-old'
       kernel_branch:
-        description: 'Kernel source branch (12.1 = Android 12 base, kernel 4.9.312, used by crDroid 7.x)'
+        description: 'Kernel source branch (a11/master = Android 11 base for crDroid 7.x | twelve = Android 12)'
         required: true
-        default: '12.1'
+        default: 'a11/master'
       kernel_commit:
-        description: 'Pin kernel source to specific commit SHA (use "head" for latest). 136eaf15 = last commit on 12.1, matches LinkBoi00 builds.'
+        description: 'Pin kernel source to specific commit SHA (use "head" for latest).'
         required: true
-        default: '136eaf15'
+        default: 'head'
       defconfig:
-        description: 'Defconfig name (under arch/arm64/configs/). sakura-perf_defconfig = optimized for daisy/sakura. msm8953_defconfig = generic but may enable unneeded SDM660 drivers.'
+        description: 'Defconfig name (under arch/arm64/configs/). daisy_defconfig = device-specific for Mi A2 Lite (recommended).'
         required: true
-        default: 'sakura-perf_defconfig'
+        default: 'daisy_defconfig'
       ksun_repo:
         description: 'KernelSU implementation (KernelSU-Next/KernelSU-Next = upstream | ThRE-Team/KernelSU-Next = ThRE fork)'
         required: true
@@ -1060,7 +1060,7 @@ jobs:
         with:
           token: ${{ secrets.RELEASES_TOKEN }}
           tag_name: ${{ env.KERNEL_CODENAME }}-${{ env.KERNEL_RELVER }}-${{ env.DEVICE_CODENAME }}
-          name: C9-Kernel-${{ env.KERNEL_CODENAME }}-${{ env.KERNEL_RELVER }}-${{ env.DEVICE_LABEL }}-4.4
+          name: C9-Kernel-${{ env.KERNEL_CODENAME }}-${{ env.KERNEL_RELVER }}-${{ env.DEVICE_LABEL }}-4.9
           repository: rianrizkifauzi/C9-Kernel_releases
           body: |
             C9-Kernel-linux version-4.4
