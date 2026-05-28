@@ -16,9 +16,9 @@ on:
         required: true
         default: '136eaf15'
       defconfig:
-        description: 'Defconfig name (under arch/arm64/configs/). Default msm8953_defconfig covers daisy/sakura/msm8953 devices.'
+        description: 'Defconfig name (under arch/arm64/configs/). sakura-perf_defconfig = optimized for daisy/sakura. msm8953_defconfig = generic but may enable unneeded SDM660 drivers.'
         required: true
-        default: 'msm8953_defconfig'
+        default: 'sakura-perf_defconfig'
       ksun_repo:
         description: 'KernelSU implementation (KernelSU-Next/KernelSU-Next = upstream | ThRE-Team/KernelSU-Next = ThRE fork)'
         required: true
@@ -212,9 +212,9 @@ jobs:
           # For daisy/sakura, codename is generic (msm8953) since defconfig is shared
           DEVICE_CODENAME=$(basename "${DCFG_NAME}" | sed 's|_defconfig$||; s|-perf_defconfig$||; s|-perf$||; s|^vendor/||')
           # Force device codename to "daisy" for unified Mi A2 Lite branding
-          if [ "$DEVICE_CODENAME" = "msm8953" ]; then
+          if [ "$DEVICE_CODENAME" = "msm8953" ] || [ "$DEVICE_CODENAME" = "sakura" ]; then
             DEVICE_CODENAME="daisy"
-            echo "Forced DEVICE_CODENAME: msm8953 -> daisy (Mi A2 Lite)"
+            echo "Forced DEVICE_CODENAME: ${DEVICE_CODENAME} -> daisy (Mi A2 Lite)"
           fi
           echo "Device codename: ${DEVICE_CODENAME}"
           echo "DEVICE_CODENAME=${DEVICE_CODENAME}" >> $GITHUB_ENV
@@ -368,7 +368,7 @@ jobs:
           echo ""
           echo "=== Defconfig CONFIG_KSU check ==="
           # Patch should have already added these to msm8953/daisy defconfig
-          DCFG_PATH="${DCFG_PATH:-arch/arm64/configs/msm8953_defconfig}"
+          DCFG_PATH="${DCFG_PATH:-arch/arm64/configs/sakura-perf_defconfig}"
           grep -E "CONFIG_KSU|CONFIG_KPROBES" "$DCFG_PATH" || echo "  (no KSU/KPROBES lines yet)"
 
       - name: Inject MINIMAL execveat hook into clean kernel source
@@ -1003,7 +1003,7 @@ jobs:
           # Example: C9-Kernel-Aurora-R1.0-Daisy-KSUN.zip
           DEVICE_CODENAME=$(basename "${DCFG_NAME}" | sed 's|_defconfig$||; s|-perf_defconfig$||; s|-perf$||')
           # Force device codename to "daisy" for unified Mi A2 Lite branding
-          if [ "$DEVICE_CODENAME" = "msm8953" ]; then
+          if [ "$DEVICE_CODENAME" = "msm8953" ] || [ "$DEVICE_CODENAME" = "sakura" ]; then
             DEVICE_CODENAME="daisy"
           fi
           echo "DEVICE_CODENAME=${DEVICE_CODENAME}" >> $GITHUB_ENV
