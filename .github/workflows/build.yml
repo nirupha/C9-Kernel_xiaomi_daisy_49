@@ -904,6 +904,12 @@ jobs:
           echo "=== Generating .config from ${MAKE_DCFG} ==="
           make O=out ARCH=arm64 "${MAKE_DCFG}" 2>&1 | tee -a build.log
 
+          # --- ИСПРАВЛЕНИЕ 1: Отключаем Stack Protector ---
+          echo "=== Fixing Clang Stack Protector issue ==="
+          sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/# CONFIG_CC_STACKPROTECTOR_STRONG is not set/g' out/.config || true
+          echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> out/.config
+          # ------------------------------------------------
+
           echo ""
           echo "=== Building kernel (Clang+GNU-LD hybrid for 4.4 compat) ==="
           echo "KernelSU repo: ${{ inputs.ksun_repo }}"
@@ -945,7 +951,7 @@ jobs:
           if [ "$LTO_MODE" != "off" ] && [ -n "$LTO_MODE" ]; then
             echo "=== Pre-build: compile scripts without LTO ==="
             make O=out ARCH=arm64 \
-              CC="ccache clang" \
+              CC="ccache clang --target=aarch64-linux-gnu" \
               CLANG_TRIPLE=aarch64-linux-gnu- \
               CROSS_COMPILE=aarch64-linux-gnu- \
               CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
@@ -953,8 +959,9 @@ jobs:
             echo "=== Scripts built, now building kernel with LTO ==="
           fi
 
+          # --- ИСПРАВЛЕНИЕ 2: Явное указание архитектуры для Clang ---
           make O=out ARCH=arm64 \
-            CC="ccache clang" \
+            CC="ccache clang --target=aarch64-linux-gnu" \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
@@ -965,7 +972,6 @@ jobs:
           echo ""
           echo "=== Build outputs ==="
           ls -lah out/arch/arm64/boot/ || true
-
       - name: Verify build artifacts
         working-directory: kernel_source
         run: |
