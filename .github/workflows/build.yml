@@ -904,22 +904,17 @@ jobs:
           echo "=== Generating .config from ${MAKE_DCFG} ==="
           make O=out ARCH=arm64 "${MAKE_DCFG}" 2>&1 | tee -a build.log
 
-          # --- ИСПРАВЛЕНИЕ 1: Отключаем Stack Protector ---
+          # --- Фикс Stack Protector оставляем (он работает!) ---
           echo "=== Fixing Clang Stack Protector issue ==="
           sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/# CONFIG_CC_STACKPROTECTOR_STRONG is not set/g' out/.config || true
           echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> out/.config
-          # ------------------------------------------------
+          # -----------------------------------------------------
 
           echo ""
           echo "=== Building kernel (Clang+GNU-LD hybrid for 4.4 compat) ==="
           echo "KernelSU repo: ${{ inputs.ksun_repo }}"
           echo "Hook mode: ${KSU_HOOK_MODE}"
 
-          # NOTE: Kernel 4.4 doesn't play nice with ld.lld (empty built-in.o issue).
-          # Use Clang for compile but GNU ld (from binutils) for link.
-          # Exception: Full LTO requires ld.lld (GNU ld can't handle LTO bitcode).
-
-          # === LTO + Polly flags ===
           EXTRA_KCFLAGS=""
           LINKER_OVERRIDE=""
           LTO_MODE="${{ inputs.enable_lto }}"
@@ -946,12 +941,10 @@ jobs:
             echo "  KCFLAGS: $EXTRA_KCFLAGS"
           fi
 
-          # For LTO builds: need to disable host tool compilation with LTO flags
-          # by building scripts separately without KCFLAGS
           if [ "$LTO_MODE" != "off" ] && [ -n "$LTO_MODE" ]; then
             echo "=== Pre-build: compile scripts without LTO ==="
             make O=out ARCH=arm64 \
-              CC="ccache clang --target=aarch64-linux-gnu" \
+              CC="ccache clang" \
               CLANG_TRIPLE=aarch64-linux-gnu- \
               CROSS_COMPILE=aarch64-linux-gnu- \
               CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
@@ -959,9 +952,9 @@ jobs:
             echo "=== Scripts built, now building kernel with LTO ==="
           fi
 
-          # --- ИСПРАВЛЕНИЕ 2: Явное указание архитектуры для Clang ---
+          # --- Убрали флаг --target из CC, возвращаем оригинальный вызов ---
           make O=out ARCH=arm64 \
-            CC="ccache clang --target=aarch64-linux-gnu" \
+            CC="ccache clang" \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
