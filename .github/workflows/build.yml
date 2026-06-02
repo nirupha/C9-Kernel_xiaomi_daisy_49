@@ -893,6 +893,14 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
+          echo "=== Fixing Proton Clang Symlink Hijack ==="
+          # Убиваем симлинки Proton Clang, чтобы они не перехватывали вызовы GNU AS/LD
+          # и не крашились от флагов вроде -EL.
+          find "$GITHUB_WORKSPACE/toolchain/clang/bin" -type l -name "aarch64-linux-gnu-*" -delete
+          find "$GITHUB_WORKSPACE/toolchain/clang/bin" -type l -name "arm-linux-gnueabi-*" -delete
+          find "$GITHUB_WORKSPACE/toolchain/clang/bin" -type l -name "as" -delete
+          find "$GITHUB_WORKSPACE/toolchain/clang/bin" -type l -name "ld" -delete
+
           echo "=== Toolchain check ==="
           which clang || { echo "::error::clang not found in PATH"; exit 1; }
           clang --version
@@ -902,18 +910,17 @@ jobs:
 
           MAKE_DCFG=$(basename "${DCFG_NAME}")
           echo "=== Generating .config from ${MAKE_DCFG} ==="
-          # ДОБАВЛЕНО: Явно указываем HOSTCC, чтобы хостовые утилиты собирались штатным GCC Actions-сервера
           make O=out ARCH=arm64 \
             HOSTCC=gcc HOSTCXX=g++ \
-            CC="ccache clang" \
+            CC="ccache clang --target=aarch64-linux-gnu" \
             CROSS_COMPILE=aarch64-linux-gnu- \
             "${MAKE_DCFG}" 2>&1 | tee -a build.log
 
-          # --- Фикс Stack Protector оставляем (он работает!) ---
+          # --- Фикс Stack Protector оставляем ---
           echo "=== Fixing Clang Stack Protector issue ==="
           sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/# CONFIG_CC_STACKPROTECTOR_STRONG is not set/g' out/.config || true
           echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> out/.config
-          # -----------------------------------------------------
+          # --------------------------------------
 
           echo ""
           echo "=== Building kernel (Clang+GNU-LD hybrid for 4.4/4.9 compat) ==="
@@ -925,7 +932,7 @@ jobs:
           LTO_MODE="${{ inputs.enable_lto }}"
           POLLY_ENABLED="${{ inputs.enable_polly }}"
 
-          # Задаем явные пути к GNU-бинутилитам, чтобы избежать ошибки "-EL" с хостовым ассемблером
+          # Гарантируем использование настоящих GNU-утилит из системы для гибридной сборки
           GNU_BINUTILS="AS=aarch64-linux-gnu-as LD=aarch64-linux-gnu-ld AR=aarch64-linux-gnu-ar NM=aarch64-linux-gnu-nm OBJCOPY=aarch64-linux-gnu-objcopy OBJDUMP=aarch64-linux-gnu-objdump STRIP=aarch64-linux-gnu-strip"
 
           if [ "$LTO_MODE" = "thin" ]; then
@@ -949,10 +956,9 @@ jobs:
 
           if [ "$LTO_MODE" != "off" ] && [ -n "$LTO_MODE" ]; then
             echo "=== Pre-build: compile scripts without LTO ==="
-            # ДОБАВЛЕНЫ: HOSTCC и ${GNU_BINUTILS}
             make O=out ARCH=arm64 \
               HOSTCC=gcc HOSTCXX=g++ \
-              CC="ccache clang" \
+              CC="ccache clang --target=aarch64-linux-gnu" \
               ${GNU_BINUTILS} \
               CLANG_TRIPLE=aarch64-linux-gnu- \
               CROSS_COMPILE=aarch64-linux-gnu- \
@@ -961,16 +967,14 @@ jobs:
             echo "=== Scripts built, now building kernel with LTO ==="
           fi
 
-          # Если LTO выключен, прокидываем GNU бинутилиты и в основную сборку тоже
           ACTIVE_BINUTILS=""
           if [ -z "$LINKER_OVERRIDE" ]; then
             ACTIVE_BINUTILS="${GNU_BINUTILS}"
           fi
 
-          # ДОБАВЛЕНЫ: HOSTCC и ${ACTIVE_BINUTILS}
           make O=out ARCH=arm64 \
             HOSTCC=gcc HOSTCXX=g++ \
-            CC="ccache clang" \
+            CC="ccache clang --target=aarch64-linux-gnu" \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
