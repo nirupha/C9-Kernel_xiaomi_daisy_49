@@ -902,7 +902,12 @@ jobs:
 
           MAKE_DCFG=$(basename "${DCFG_NAME}")
           echo "=== Generating .config from ${MAKE_DCFG} ==="
-          make O=out ARCH=arm64 "${MAKE_DCFG}" 2>&1 | tee -a build.log
+          # ДОБАВЛЕНО: Явно указываем HOSTCC, чтобы хостовые утилиты собирались штатным GCC Actions-сервера
+          make O=out ARCH=arm64 \
+            HOSTCC=gcc HOSTCXX=g++ \
+            CC="ccache clang" \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            "${MAKE_DCFG}" 2>&1 | tee -a build.log
 
           # --- Фикс Stack Protector оставляем (он работает!) ---
           echo "=== Fixing Clang Stack Protector issue ==="
@@ -911,7 +916,7 @@ jobs:
           # -----------------------------------------------------
 
           echo ""
-          echo "=== Building kernel (Clang+GNU-LD hybrid for 4.4 compat) ==="
+          echo "=== Building kernel (Clang+GNU-LD hybrid for 4.4/4.9 compat) ==="
           echo "KernelSU repo: ${{ inputs.ksun_repo }}"
           echo "Hook mode: ${KSU_HOOK_MODE}"
 
@@ -920,14 +925,15 @@ jobs:
           LTO_MODE="${{ inputs.enable_lto }}"
           POLLY_ENABLED="${{ inputs.enable_polly }}"
 
+          # Задаем явные пути к GNU-бинутилитам, чтобы избежать ошибки "-EL" с хостовым ассемблером
+          GNU_BINUTILS="AS=aarch64-linux-gnu-as LD=aarch64-linux-gnu-ld AR=aarch64-linux-gnu-ar NM=aarch64-linux-gnu-nm OBJCOPY=aarch64-linux-gnu-objcopy OBJDUMP=aarch64-linux-gnu-objdump STRIP=aarch64-linux-gnu-strip"
+
           if [ "$LTO_MODE" = "thin" ]; then
             echo "⚡ ThinLTO enabled"
-            echo "⚠️  NOTE: Kernel 4.4 requires Makefile backport for LTO. If build fails, use 'off'."
             EXTRA_KCFLAGS="$EXTRA_KCFLAGS -flto=thin -fvisibility=hidden"
             LINKER_OVERRIDE="LD=ld.lld LLVM=1 LLVM_IAS=1"
           elif [ "$LTO_MODE" = "full" ]; then
             echo "⚡ Full LTO enabled (slow build, max optimize)"
-            echo "⚠️  NOTE: Kernel 4.4 requires Makefile backport for LTO. If build fails, use 'off'."
             EXTRA_KCFLAGS="$EXTRA_KCFLAGS -flto -fvisibility=hidden"
             LINKER_OVERRIDE="LD=ld.lld LLVM=1 LLVM_IAS=1"
           fi
@@ -943,8 +949,11 @@ jobs:
 
           if [ "$LTO_MODE" != "off" ] && [ -n "$LTO_MODE" ]; then
             echo "=== Pre-build: compile scripts without LTO ==="
+            # ДОБАВЛЕНЫ: HOSTCC и ${GNU_BINUTILS}
             make O=out ARCH=arm64 \
+              HOSTCC=gcc HOSTCXX=g++ \
               CC="ccache clang" \
+              ${GNU_BINUTILS} \
               CLANG_TRIPLE=aarch64-linux-gnu- \
               CROSS_COMPILE=aarch64-linux-gnu- \
               CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
@@ -952,12 +961,20 @@ jobs:
             echo "=== Scripts built, now building kernel with LTO ==="
           fi
 
-          # --- Убрали флаг --target из CC, возвращаем оригинальный вызов ---
+          # Если LTO выключен, прокидываем GNU бинутилиты и в основную сборку тоже
+          ACTIVE_BINUTILS=""
+          if [ -z "$LINKER_OVERRIDE" ]; then
+            ACTIVE_BINUTILS="${GNU_BINUTILS}"
+          fi
+
+          # ДОБАВЛЕНЫ: HOSTCC и ${ACTIVE_BINUTILS}
           make O=out ARCH=arm64 \
+            HOSTCC=gcc HOSTCXX=g++ \
             CC="ccache clang" \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            ${ACTIVE_BINUTILS} \
             ${LINKER_OVERRIDE} \
             ${EXTRA_KCFLAGS:+KCFLAGS="$EXTRA_KCFLAGS"} \
             -j$(nproc --all) 2>&1 | tee -a build.log
