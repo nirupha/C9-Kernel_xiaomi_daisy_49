@@ -887,11 +887,19 @@ jobs:
           SUBARCH: arm64
           KBUILD_BUILD_USER: JorianPonomaref
           KBUILD_BUILD_HOST: daisy-actions
-        run: |
+                run: |
           set -eo pipefail
           export PATH="$GITHUB_WORKSPACE/toolchain/clang/bin:$PATH"
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+
+          echo "=== Nuking Proton Clang Assembler Wrappers ==="
+          # Жестко удаляем встроенные обертки Proton Clang, чтобы они не перехватывали 
+          # вызовы GNU AS/LD на этапе сборки empty.o и не ругались на флаг -EL
+          rm -f "$GITHUB_WORKSPACE/toolchain/clang/bin/as"
+          rm -f "$GITHUB_WORKSPACE/toolchain/clang/bin/ld"
+          rm -f "$GITHUB_WORKSPACE/toolchain/clang/bin/aarch64-linux-gnu-"*
+          rm -f "$GITHUB_WORKSPACE/toolchain/clang/bin/arm-linux-gnueabi-"*
 
           echo "=== Toolchain check ==="
           which clang || { echo "::error::clang not found in PATH"; exit 1; }
@@ -902,31 +910,32 @@ jobs:
 
           MAKE_DCFG=$(basename "${DCFG_NAME}")
           echo "=== Generating .config from ${MAKE_DCFG} ==="
-          make O=out ARCH=arm64 "${MAKE_DCFG}" 2>&1 | tee -a build.log
+          # Добавляем target сюда, чтобы kconfig тесты компилятора понимали, что мы шьем под arm64
+          make O=out ARCH=arm64 \
+            HOSTCC=gcc HOSTCXX=g++ \
+            CC="ccache clang --target=aarch64-linux-gnu" \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            "${MAKE_DCFG}" 2>&1 | tee -a build.log
 
           echo ""
-          echo "=== Building kernel (Clang+GNU-LD hybrid for 4.4 compat) ==="
-          echo "KernelSU repo: ${{ inputs.ksun_repo }}"
+          echo "=== Building kernel (Clang+GNU-LD hybrid for 4.9 compat) ==="
+          echo "KernelSU repo: KernelSU-Next/KernelSU-Next"
           echo "Hook mode: ${KSU_HOOK_MODE}"
 
-          # NOTE: Kernel 4.4 doesn't play nice with ld.lld (empty built-in.o issue).
-          # Use Clang for compile but GNU ld (from binutils) for link.
-          # Exception: Full LTO requires ld.lld (GNU ld can't handle LTO bitcode).
-
-          # === LTO + Polly flags ===
           EXTRA_KCFLAGS=""
           LINKER_OVERRIDE=""
-          LTO_MODE="${{ inputs.enable_lto }}"
-          POLLY_ENABLED="${{ inputs.enable_polly }}"
+          LTO_MODE="off"
+          POLLY_ENABLED="false"
+
+          # Принудительно задаем системные GNU утилиты
+          GNU_BINUTILS="AS=aarch64-linux-gnu-as LD=aarch64-linux-gnu-ld AR=aarch64-linux-gnu-ar NM=aarch64-linux-gnu-nm OBJCOPY=aarch64-linux-gnu-objcopy OBJDUMP=aarch64-linux-gnu-objdump STRIP=aarch64-linux-gnu-strip"
 
           if [ "$LTO_MODE" = "thin" ]; then
             echo "⚡ ThinLTO enabled"
-            echo "⚠️  NOTE: Kernel 4.4 requires Makefile backport for LTO. If build fails, use 'off'."
             EXTRA_KCFLAGS="$EXTRA_KCFLAGS -flto=thin -fvisibility=hidden"
             LINKER_OVERRIDE="LD=ld.lld LLVM=1 LLVM_IAS=1"
           elif [ "$LTO_MODE" = "full" ]; then
             echo "⚡ Full LTO enabled (slow build, max optimize)"
-            echo "⚠️  NOTE: Kernel 4.4 requires Makefile backport for LTO. If build fails, use 'off'."
             EXTRA_KCFLAGS="$EXTRA_KCFLAGS -flto -fvisibility=hidden"
             LINKER_OVERRIDE="LD=ld.lld LLVM=1 LLVM_IAS=1"
           fi
@@ -936,16 +945,23 @@ jobs:
             EXTRA_KCFLAGS="$EXTRA_KCFLAGS -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-run-dce"
           fi
 
+          # Если LTO отключен (обычная сборка), принудительно отключаем встроенный ассемблер Clang
+          ACTIVE_IAS=""
+          if [ "$LTO_MODE" = "off" ] || [ -z "$LTO_MODE" ]; then
+            ACTIVE_IAS="LLVM_IAS=0"
+          fi
+
           if [ -n "$EXTRA_KCFLAGS" ]; then
             echo "  KCFLAGS: $EXTRA_KCFLAGS"
           fi
 
-          # For LTO builds: need to disable host tool compilation with LTO flags
-          # by building scripts separately without KCFLAGS
           if [ "$LTO_MODE" != "off" ] && [ -n "$LTO_MODE" ]; then
             echo "=== Pre-build: compile scripts without LTO ==="
             make O=out ARCH=arm64 \
-              CC="ccache clang" \
+              HOSTCC=gcc HOSTCXX=g++ \
+              CC="ccache clang --target=aarch64-linux-gnu" \
+              ${GNU_BINUTILS} \
+              ${ACTIVE_IAS} \
               CLANG_TRIPLE=aarch64-linux-gnu- \
               CROSS_COMPILE=aarch64-linux-gnu- \
               CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
@@ -954,17 +970,21 @@ jobs:
           fi
 
           make O=out ARCH=arm64 \
-            CC="ccache clang" \
+            HOSTCC=gcc HOSTCXX=g++ \
+            CC="ccache clang --target=aarch64-linux-gnu" \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            ${GNU_BINUTILS} \
             ${LINKER_OVERRIDE} \
+            ${ACTIVE_IAS} \
             ${EXTRA_KCFLAGS:+KCFLAGS="$EXTRA_KCFLAGS"} \
             -j$(nproc --all) 2>&1 | tee -a build.log
 
           echo ""
           echo "=== Build outputs ==="
           ls -lah out/arch/arm64/boot/ || true
+
 
       - name: Verify build artifacts
         working-directory: kernel_source
